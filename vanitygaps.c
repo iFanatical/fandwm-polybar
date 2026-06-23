@@ -488,8 +488,8 @@ fibonacci(Monitor *m, int s)
 
 	for (i = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next)) {
 		if (r) {
-			if ((i % 2 && (nh - ih) / 2 <= (bh + 2*c->bw))
-			   || (!(i % 2) && (nw - iv) / 2 <= (bh + 2*c->bw))) {
+			if ((i % 2 && (nh - ih) / 2 <= (2*c->bw))
+			   || (!(i % 2) && (nw - iv) / 2 <= (2*c->bw))) {
 				r = 0;
 			}
 			if (r && i < n - 1) {

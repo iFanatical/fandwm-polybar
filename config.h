@@ -3,50 +3,18 @@
 /* appearance */
 static const unsigned int borderpx  = 2;        /* border pixel of windows */
 static const unsigned int snap      = 32;       /* snap pixel */
-static const int showsystray             = 1;   /* 0 means no systray */
-static const int systraypin 		 = 0;   /* monitor index; -1 = follow selmon */
-static const unsigned int systrayspacing = 2;   /* spacing between systray icons */
-static const unsigned int systraypadding = 0;   /* padding inside systray window */
-static const char         systraybgcolor[] = "#1a1b26"; /* tray bg, default colormap */
 static const int swallowfloating    = 1;
 static const unsigned int gappih    = 8;       /* horiz inner gap between windows */
 static const unsigned int gappiv    = 8;       /* vert inner gap between windows */
 static const unsigned int gappoh    = 8;       /* horiz outer gap between windows and screen edge */
 static const unsigned int gappov    = 8;       /* vert outer gap between windows and screen edge */
 static       int smartgaps          = 0;        /* 1 means no outer gap when there is only one window */
-static const int showbar            = 1;        /* 0 means no bar */
-static const int topbar             = 1;        /* 0 means bottom bar */
-static const char *fonts[]          = { "JetBrainsMonoNL Nerd Font Propo:bold:pixelsize=14:antialias=true" };
 static const char dmenufont[]       = "JetBrainsMono Nerd Font Propo:size=14";
-static unsigned int baralpha        = 0xf2;
-static unsigned int borderalpha     = OPAQUE;
 static const char col_bg[]          = "#1a1b26";
 static const char col_border[]      = "#444b6a";
 static const char col_fg[]          = "#dddddd";
-static const char col_black[] 	    = "#32344a";
-static const char col_red[]	    = "#f7768e";
-static const char col_green[]	    = "#9ece6a";
-static const char col_yellow[]	    = "#e0af68";
-static const char col_blue[]	    = "#7aa2f7";
-static const char col_magenta[]	    = "#ad8ee6";
-static const char col_cyan[]	    = "#0db9d7";
-static const char col_white[]	    = "#787c99";
-static const char col_black_bright[]	    = "#444b6a";
-static const char col_red_bright[]	    = "#ff7a93";
-static const char col_green_bright[]	    = "#b9f27c";
-static const char col_yellow_bright[]	    = "#ff9e64";
-static const char col_blue_bright[]	    = "#7da6ff";
-static const char col_magenta_bright[]	    = "#bb9af7";
-static const char col_cyan_bright[]	    = "#449dab";
-static const char col_white_bright[]	    = "#acb0d0";
-
-static const char *colors[][3]      = {
-	/*               fg              bg          border           */
-	[SchemeNorm] 	= { col_fg,		col_bg,		col_border	},
-	[SchemeSel]  	= { col_cyan,		col_bg,		col_cyan	},
-	[SchemeBox]	= { col_magenta_bright,		col_bg,		col_magenta_bright	},
-	[SchemeTitle] 	= { col_magenta_bright,		col_bg, 	col_bg 	},
-};
+static const char *col_normborder   = "#444b6a";
+static const char *col_selborder    = "#0db9d7";
 
 typedef struct {
 	const char *name;
@@ -170,7 +138,6 @@ static const char *dmenucmd[] 		= { "dmenu_run", "-m", dmenumon, "-fn", dmenufon
 
 static Key keys[] = {
 	/* modifier                     key        function        argument */
-	{ MODKEY|SHIFT,             XK_b,      togglebar,      {0} },
 	{ MODKEY,                       XK_j,      focusstack,     {.i = +1 } },
 	{ MODKEY,                       XK_k,      focusstack,     {.i = -1 } },
 	{ MODKEY|SHIFT,                 XK_j,      pushdown,	   {0} },
