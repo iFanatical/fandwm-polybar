@@ -79,7 +79,9 @@ enum { NetSupported, NetWMName, NetWMState, NetWMCheck,
        NetWMWindowTypeDock,
        NetWMMaximizedVert, NetWMMaximizedHorz,
        NetWMFullscreen, NetActiveWindow, NetWMWindowType,
-       NetWMWindowTypeDialog, NetClientList, NetWMStrut, NetWMStrutPartial, NetLast };
+       NetWMWindowTypeDialog, NetClientList, NetWMStrut, NetWMStrutPartial,
+       NetCurrentDesktop, NetNumberOfDesktops, NetDesktopNames, NetWMDesktop,
+       NetLast };
 enum { WMProtocols, WMDelete, WMState, WMTakeFocus, WMLast }; /* default atoms */
 enum { ClkTagBar, ClkLtSymbol, ClkStatusText, ClkWinTitle,
        ClkClientWin, ClkRootWin, ClkLast }; /* clicks */
@@ -142,6 +144,8 @@ struct Monitor {
 	int gappiv;           /* vertical gap between windows */
 	int gappoh;           /* horizontal outer gaps */
 	int gappov;           /* vertical outer gaps */
+	int bh;               /* altbar (polybar) height */
+	Window barwin;        /* altbar window */
 	unsigned int seltags;
 	unsigned int sellt;
 	unsigned int tagset[2];
@@ -202,6 +206,7 @@ static void incnmaster(const Arg *arg);
 static void keypress(XEvent *e);
 static void killclient(const Arg *arg);
 static void manage(Window w, XWindowAttributes *wa);
+static void managealtbar(Window win, XWindowAttributes *wa);
 static void mappingnotify(XEvent *e);
 static void maprequest(XEvent *e);
 static void monocle(Monitor *m);
@@ -246,6 +251,7 @@ static void unmanage(Client *c, int destroyed);
 static void unmapnotify(XEvent *e);
 static void updatebarpos(Monitor *m);
 static void updateclientlist(void);
+static void updatedesktops(void);
 static int updategeom(void);
 static void updatenumlockmask(void);
 static void updatesizehints(Client *c);
@@ -272,6 +278,7 @@ static const char autostartsh[] = "autostart.sh";
 static const char dwmdir[] = "dwm";
 static const char localshare[] = ".local/share";
 static const char broken[] = "broken";
+static const char altbarclass[] = "Polybar";
 static int screen;
 static int sw, sh;           /* X display screen geometry width, height */
 static int (*xerrorxlib)(Display *, XErrorEvent *);
@@ -440,6 +447,7 @@ arrange(Monitor *m)
 		restack(m);
 	} else for (m = mons; m; m = m->next)
 		arrangemon(m);
+	updatedesktops();
 }
 
 void
@@ -745,12 +753,24 @@ void
 destroynotify(XEvent *e)
 {
 	Client *c;
+	Monitor *m;
 	XDestroyWindowEvent *ev = &e->xdestroywindow;
 
 	if ((c = wintoclient(ev->window)))
 		unmanage(c, 1);
 	else if ((c = swallowingclient(ev->window)))
 		unmanage(c->swallowing, 1);
+	else {
+		for (m = mons; m; m = m->next) {
+			if (m->barwin == ev->window) {
+				m->barwin = 0;
+				m->bh = 0;
+				updatebarpos(m);
+				arrange(m);
+				break;
+			}
+		}
+	}
 }
 
 void
@@ -1100,6 +1120,13 @@ manage(Window w, XWindowAttributes *wa)
 	updatesizehints(c);
 	updatewmhints(c);
 	if (c->isbar) {
+		/* use original wa geometry — c->x/y may have been clamped to wrong monitor */
+		Monitor *bm = recttomon(c->oldx, c->oldy, c->oldw, c->oldh);
+		if (bm && bm != c->mon) {
+			c->mon = bm;
+			c->x = c->oldx;
+			c->y = c->oldy;
+		}
 		c->bw = 0;
 		wc.border_width = 0;
 		XConfigureWindow(dpy, w, CWBorderWidth, &wc);
@@ -1148,13 +1175,40 @@ mappingnotify(XEvent *e)
 }
 
 void
+managealtbar(Window win, XWindowAttributes *wa)
+{
+	Monitor *m;
+
+	m = recttomon(wa->x, wa->y, wa->width, wa->height);
+	if (!m)
+		m = selmon;
+	m->barwin = win;
+	m->bh = wa->height;
+	XSelectInput(dpy, win, StructureNotifyMask);
+	XRaiseWindow(dpy, win);
+	XMapWindow(dpy, win);
+	updatebarpos(m);
+	arrange(m);
+}
+
+void
 maprequest(XEvent *e)
 {
 	static XWindowAttributes wa;
 	XMapRequestEvent *ev = &e->xmaprequest;
+	XClassHint ch = { NULL, NULL };
 
 	if (!XGetWindowAttributes(dpy, ev->window, &wa) || wa.override_redirect)
 		return;
+	XGetClassHint(dpy, ev->window, &ch);
+	if (ch.res_class && strcmp(ch.res_class, altbarclass) == 0) {
+		if (ch.res_name) XFree(ch.res_name);
+		XFree(ch.res_class);
+		managealtbar(ev->window, &wa);
+		return;
+	}
+	if (ch.res_name) XFree(ch.res_name);
+	if (ch.res_class) XFree(ch.res_class);
 	if (!wintoclient(ev->window))
 		manage(ev->window, &wa);
 }
@@ -1301,8 +1355,15 @@ propertynotify(XEvent *e)
 		}
 		if (ev->atom == XA_WM_NAME || ev->atom == netatom[NetWMName])
 			updatetitle(c);
-		if (ev->atom == netatom[NetWMWindowType])
+		if (ev->atom == netatom[NetWMWindowType]) {
+			int wasbar = c->isbar;
 			updatewindowtype(c);
+			if (!wasbar && c->isbar) {
+				c->tags = TAGMASK;
+				updatebarpos(c->mon);
+				arrange(c->mon);
+			}
+		}
 		if ((ev->atom == netatom[NetWMStrut] || ev->atom == netatom[NetWMStrutPartial]) && c->isbar) {
 			updatebarpos(c->mon);
 			arrange(c->mon);
@@ -1752,6 +1813,26 @@ setup(void)
 	netatom[NetClientList] = XInternAtom(dpy, "_NET_CLIENT_LIST", False);
 	netatom[NetWMStrut] = XInternAtom(dpy, "_NET_WM_STRUT", False);
 	netatom[NetWMStrutPartial] = XInternAtom(dpy, "_NET_WM_STRUT_PARTIAL", False);
+	netatom[NetCurrentDesktop] = XInternAtom(dpy, "_NET_CURRENT_DESKTOP", False);
+	netatom[NetNumberOfDesktops] = XInternAtom(dpy, "_NET_NUMBER_OF_DESKTOPS", False);
+	netatom[NetDesktopNames] = XInternAtom(dpy, "_NET_DESKTOP_NAMES", False);
+	netatom[NetWMDesktop] = XInternAtom(dpy, "_NET_WM_DESKTOP", False);
+	{
+		long n = LENGTH(tags);
+		char names[256];
+		int i, len = 0;
+		XChangeProperty(dpy, root, netatom[NetNumberOfDesktops], XA_CARDINAL, 32,
+			PropModeReplace, (unsigned char *)&n, 1);
+		for (i = 0; i < (int)LENGTH(tags); i++) {
+			memcpy(names + len, tags[i], strlen(tags[i]) + 1);
+			len += strlen(tags[i]) + 1;
+		}
+		XChangeProperty(dpy, root, netatom[NetDesktopNames], utf8string, 8,
+			PropModeReplace, (unsigned char *)names, len);
+		n = 0;
+		XChangeProperty(dpy, root, netatom[NetCurrentDesktop], XA_CARDINAL, 32,
+			PropModeReplace, (unsigned char *)&n, 1);
+	}
 	/* init cursors */
 	cursor[CurNormal] = XCreateFontCursor(dpy, XC_left_ptr);
 	cursor[CurResize] = XCreateFontCursor(dpy, XC_sizing);
@@ -2034,6 +2115,7 @@ void
 unmapnotify(XEvent *e)
 {
 	Client *c;
+	Monitor *m;
 	XUnmapEvent *ev = &e->xunmap;
 
 	if ((c = wintoclient(ev->window))) {
@@ -2041,6 +2123,16 @@ unmapnotify(XEvent *e)
 			setclientstate(c, WithdrawnState);
 		else
 			unmanage(c, 0);
+	} else {
+		for (m = mons; m; m = m->next) {
+			if (m->barwin == ev->window) {
+				m->barwin = 0;
+				m->bh = 0;
+				updatebarpos(m);
+				arrange(m);
+				break;
+			}
+		}
 	}
 }
 
@@ -2078,8 +2170,17 @@ applystruts(Monitor *m)
 				if (s[2]) { m->wy += s[2]; m->wh -= s[2]; }
 				if (s[3]) { m->wh -= s[3]; }
 				XFree(data);
-			} else if (data)
-				XFree(data);
+			} else {
+				if (data)
+					XFree(data);
+				/* fallback: derive reserved space from the bar's actual geometry */
+				if (c->y <= m->my) {
+					m->wy += c->h;
+					m->wh -= c->h;
+				} else if (c->y + c->h >= m->my + m->mh) {
+					m->wh -= c->h;
+				}
+			}
 		}
 	}
 }
@@ -2091,7 +2192,12 @@ updatebarpos(Monitor *m)
 	m->wh = m->mh;
 	m->wx = m->mx;
 	m->ww = m->mw;
-	applystruts(m);
+	if (m->bh > 0) {
+		m->wy += m->bh;
+		m->wh -= m->bh;
+	} else {
+		applystruts(m);
+	}
 }
 
 void
@@ -2106,6 +2212,41 @@ updateclientlist(void)
 			XChangeProperty(dpy, root, netatom[NetClientList],
 				XA_WINDOW, 32, PropModeAppend,
 				(unsigned char *) &(c->win), 1);
+}
+
+void
+updatedesktops(void)
+{
+	Client *c;
+	Monitor *m;
+	long d;
+	int i;
+
+	/* _NET_CURRENT_DESKTOP: index of lowest set bit in selmon's active tagset */
+	d = 0;
+	for (i = 0; i < (int)LENGTH(tags); i++) {
+		if (selmon->tagset[selmon->seltags] & (1 << i)) {
+			d = i;
+			break;
+		}
+	}
+	XChangeProperty(dpy, root, netatom[NetCurrentDesktop], XA_CARDINAL, 32,
+		PropModeReplace, (unsigned char *)&d, 1);
+
+	/* _NET_WM_DESKTOP: per-client, lowest regular tag they are on */
+	for (m = mons; m; m = m->next) {
+		for (c = m->clients; c; c = c->next) {
+			d = 0;
+			for (i = 0; i < (int)LENGTH(tags); i++) {
+				if (c->tags & (1 << i)) {
+					d = i;
+					break;
+				}
+			}
+			XChangeProperty(dpy, c->win, netatom[NetWMDesktop], XA_CARDINAL, 32,
+				PropModeReplace, (unsigned char *)&d, 1);
+		}
+	}
 }
 
 int
